@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>基金收益计算器</title>
+  <style>
+    :root {
+      --bg-primary:   #0d0f1a;
+      --bg-secondary: #141628;
+      --bg-card:      #181b2e;
+      --bg-input:     #1e2138;
+      --border:       #272b48;
+      --border-light: #303560;
+      --text-primary:   #e6e8f4;
+      --text-secondary: #8b90b8;
+      --text-muted:     #4e527a;
+      --accent:       #5571f5;
+      --accent-glow:  rgba(85, 113, 245, 0.35);
+      --profit:       #f04040;
+      --profit-bg:    rgba(240, 64, 64, 0.10);
+      --loss:         #22c45e;
+      --loss-bg:      rgba(34, 196, 94, 0.10);
+      --neutral:      #8b90b8;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+                   'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+      min-height: 100vh;
+      padding: 28px 16px 48px;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+
+    .container { max-width: 1160px; margin: 0 auto; }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 32px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo-icon {
+      width: 44px; height: 44px;
+      background: linear-gradient(135deg, #5571f5, #a78bfa);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .logo-icon svg { width: 24px; height: 24px; }
+    .logo-text h1 {
+      font-size: 22px; font-weight: 700;
+      background: linear-gradient(135deg, #8ba4ff, #c4b5fd);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .logo-text p {
+      font-size: 12px; color: var(--text-muted); margin-top: 3px; letter-spacing: 0.5px;
+    }
+    .header-right { text-align: right; }
+    .update-time {
+      font-size: 13px; color: var(--text-secondary);
+      line-height: 1.6;
+    }
+    .update-time span { color: var(--text-primary); }
+    .auto-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(85, 113, 245, 0.12);
+      border: 1px solid rgba(85, 113, 245, 0.28);
+      border-radius: 20px; padding: 4px 12px;
+      font-size: 12px; color: var(--accent); margin-top: 8px;
+    }
+    .pulse-dot {
+      width: 6px; height: 6px;
+      background: var(--accent); border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.4; transform: scale(0.8); }
+    }
+
+    /* ── Section card ── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px 24px;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 14px; font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase; letter-spacing: 0.8px;
+      margin-bottom: 18px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .section-title::before {
+      content: '';
+      display: inline-block; width: 3px; height: 14px;
+      background: linear-gradient(180deg, #5571f5, #a78bfa);
+      border-radius: 2px;
+    }
+
+    /* ── Add Fund Form ── */
+    .add-form {
+      display: grid;
+      grid-template-columns: 160px 1fr auto;
+      gap: 12px;
+      align-items: end;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group label { font-size: 12px; color: var(--text-muted); }
+
+    input[type="text"],
+    input[type="number"] {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: var(--text-primary);
+      font-size: 14px;
+      width: 100%;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      -moz-appearance: textfield;
+    }
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    input::placeholder { color: var(--text-muted); }
+    input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 10px 20px;
+      border: none; border-radius: 8px;
+      font-size: 14px; font-weight: 600;
+      cursor: pointer;
+      transition: all 0.18s; white-space: nowrap;
+    }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none !important; }
+
+    .btn-primary {
+      background: var(--accent); color: #fff;
+    }
+    .btn-primary:not(:disabled):hover {
+      background: #6b85ff;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px var(--accent-glow);
+    }
+
+    .btn-refresh {
+      background: linear-gradient(135deg, #5571f5, #a78bfa);
+      color: #fff; padding: 10px 28px;
+    }
+    .btn-refresh:not(:disabled):hover {
+      opacity: 0.9; transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(85, 113, 245, 0.45);
+    }
+
+    .btn-remove {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 5px 12px; font-size: 12px;
+    }
+    .btn-remove:hover {
+      border-color: var(--profit);
+      color: var(--profit);
+      background: var(--profit-bg);
+    }
+
+    /* ── Actions bar ── */
+    .actions-bar {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px;
+    }
+    .fund-count {
+      font-size: 13px; color: var(--text-muted);
+    }
+    .fund-count span { color: var(--text-secondary); font-weight: 600; }
+
+    /* ── Table ── */
+    .table-wrapper {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+    .table-scroll { overflow-x: auto; }
+
+    table { width: 100%; border-collapse: collapse; min-width: 720px; }
+
+    thead { background: var(--bg-secondary); }
+    thead th {
+      padding: 13px 16px;
+      font-size: 11px; font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.7px;
+      white-space: nowrap; text-align: right;
+    }
+    thead th:first-child { text-align: left; }
+    thead th:last-child  { text-align: center; }
+
+    tbody tr { border-top: 1px solid var(--border); transition: background 0.15s; }
+    tbody tr:hover { background: rgba(85, 113, 245, 0.04); }
+
+    tbody td {
+      padding: 15px 16px;
+      font-size: 14px; text-align: right;
+      vertical-align: middle;
+    }
+    tbody td:first-child { text-align: left; }
+    tbody td:last-child  { text-align: center; }
+
+    .fund-name {
+      font-weight: 600; font-size: 14px;
+      max-width: 200px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .fund-meta {
+      font-size: 11px; color: var(--text-muted); margin-top: 3px;
+    }
+
+    .profit { color: var(--profit); }
+    .loss   { color: var(--loss);   }
+    .neutral { color: var(--neutral); }
+
+    .change-pill {
+      display: inline-flex; align-items: center;
+      padding: 4px 10px; border-radius: 6px;
+      font-size: 13px; font-weight: 700;
+    }
+    .change-pill.profit { background: var(--profit-bg); color: var(--profit); }
+    .change-pill.loss   { background: var(--loss-bg);   color: var(--loss);   }
+    .change-pill.neutral { background: rgba(139,144,184,0.1); color: var(--neutral); }
+
+    /* ── Skeleton loader ── */
+    .skel {
+      display: inline-block; width: 72px; height: 14px;
+      background: linear-gradient(90deg, var(--bg-input) 25%, var(--border-light) 50%, var(--bg-input) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s linear infinite;
+      border-radius: 4px; vertical-align: middle;
+    }
+    @keyframes shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* ── Empty state ── */
+    .empty-state {
+      padding: 56px 24px; text-align: center; color: var(--text-muted);
+    }
+    .empty-state svg { opacity: 0.25; margin-bottom: 14px; }
+    .empty-state p { font-size: 14px; line-height: 1.7; }
+
+    /* ── Summary ── */
+    .summary-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+    }
+    .summary-item {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      text-align: center;
+    }
+    .summary-label { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
+    .summary-value { font-size: 24px; font-weight: 700; line-height: 1.2; }
+
+    /* ── Spinner ── */
+    .spinner {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.25);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.65s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 28px; right: 28px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 20px;
+      font-size: 14px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      z-index: 9999;
+      opacity: 0; transform: translateY(12px);
+      transition: opacity 0.25s, transform 0.25s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.success { border-left: 3px solid var(--accent); }
+    .toast.error   { border-left: 3px solid var(--profit); }
+
+    /* ── Responsive ── */
+    @media (max-width: 860px) {
+      .add-form { grid-template-columns: 1fr 1fr; }
+      .add-form .btn { grid-column: span 2; }
+      .summary-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      header { flex-direction: column; gap: 16px; }
+      .header-right { text-align: left; }
+      .add-form { grid-template-columns: 1fr; }
+      .add-form .btn { grid-column: span 1; }
+    }
+    .nav-hint {
+      font-size: 12px; color: var(--text-muted);
+      display: flex; align-items: center; gap: 5px;
+      margin-top: 10px;
+    }
+    .nav-hint svg { flex-shrink: 0; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
+          <polyline points="16 7 22 7 22 13"/>
+        </svg>
+      </div>
+      <div class="logo-text">
+        <h1>基金收益计算器</h1>
+        <p>实时估值 &nbsp;·&nbsp; 自动刷新 &nbsp;·&nbsp; 本地存储</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="update-time" id="updateTime">数据尚未更新</div>
+      <div class="auto-badge">
+        <span class="pulse-dot"></span>
+        每 60 秒自动刷新
+      </div>
+    </div>
+  </header>
+
+  <!-- Add Fund Card -->
+  <div class="card">
+    <div class="section-title">添加基金</div>
+    <div class="add-form">
+      <div class="form-group">
+        <label>基金代码（6 位）</label>
+        <input id="iCode" type="text" maxlength="6" placeholder="例：110011" />
+      </div>
+      <div class="form-group">
+        <label>持仓份额</label>
+        <input id="iShares" type="number" placeholder="例：10000.00" min="0" step="0.01" />
+      </div>
+      <button class="btn btn-primary" onclick="addFund()">添加</button>
+    </div>
+    <div class="nav-hint">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/>
+      </svg>
+      昨日净值及基金名称将在点击「刷新估值」时自动从接口获取
+    </div>
+  </div>
+
+  <!-- Actions bar -->
+  <div class="actions-bar">
+    <div class="fund-count">已添加 <span id="fundCount">0</span> 只基金</div>
+    <button class="btn btn-refresh" id="refreshBtn" onclick="refreshAll()">刷新估值</button>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrapper">
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>基金</th>
+            <th>昨日净值</th>
+            <th>今日估值</th>
+            <th>涨跌幅</th>
+            <th>持仓份额</th>
+            <th>持仓市值</th>
+            <th>今日盈亏</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div class="card">
+    <div class="section-title">持仓汇总</div>
+    <div class="summary-grid">
+      <div class="summary-item">
+        <div class="summary-label">总持仓市值（元）</div>
+        <div class="summary-value neutral" id="sumValue">--</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">今日总盈亏（元）</div>
+        <div class="summary-value neutral" id="sumProfit">--</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">总体涨跌幅</div>
+        <div class="summary-value neutral" id="sumChange">--</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  /* ── State ── */
+  let funds = [];
+  let timer = null;
+
+  /* ── Persist ── */
+  function save() {
+    localStorage.setItem('fund_calc_v3', JSON.stringify(
+      funds.map(({ code, shares, prevNav, name, gsz, gszzl, gztime }) =>
+        ({ code, shares, prevNav, name, gsz, gszzl, gztime })
+      )
+    ));
+  }
+  function load() {
+    try {
+      const raw = localStorage.getItem('fund_calc_v3');
+      if (raw) funds = JSON.parse(raw);
+    } catch (_) { funds = []; }
+  }
+
+  /* ── JSONP (sequential to avoid callback collision) ── */
+  function fetchOne(code) {
+    return new Promise((resolve, reject) => {
+      const scriptId = '_fscript_' + code;
+      let settled = false;
+
+      const tid = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error('timeout'));
+      }, 9000);
+
+      function cleanup() {
+        clearTimeout(tid);
+        delete window.jsonpgz;
+        const s = document.getElementById(scriptId);
+        if (s) s.remove();
+      }
+
+      window.jsonpgz = function (data) {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(data);
+      };
+
+      const script = document.createElement('script');
+      script.id = scriptId;
+      script.src = 'https://fundgz.1234567.com.cn/js/' + code + '.js?t=' + Date.now();
+      script.onerror = function () {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error('load error'));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  /* ── Refresh all funds sequentially ── */
+  async function refreshAll() {
+    if (funds.length === 0) { showToast('请先添加基金', 'error'); return; }
+
+    const btn = document.getElementById('refreshBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>&nbsp;更新中…';
+
+    funds.forEach(f => { f.loading = true; f.error = false; });
+    render();
+
+    let ok = 0;
+    for (const f of funds) {
+      try {
+        const data = await fetchOne(f.code);
+        if (data.name)   f.name   = data.name;
+        if (data.dwjz)   f.prevNav = parseFloat(data.dwjz);  // 昨日实际净值，自动获取
+        if (data.gsz)    f.gsz    = parseFloat(data.gsz);
+        if (data.gszzl !== undefined) f.gszzl = parseFloat(data.gszzl);
+        if (data.gztime) f.gztime = data.gztime;
+        f.loading = false;
+        ok++;
+      } catch (_) {
+        f.loading = false;
+        f.error = true;
+      }
+      render(); // update row-by-row as data arrives
+    }
+
+    save();
+    updateSummary();
+
+    const now = new Date();
+    document.getElementById('updateTime').innerHTML =
+      '最后更新：<span>' + now.toLocaleTimeString('zh-CN') + '</span>';
+
+    btn.disabled = false;
+    btn.innerHTML = '刷新估值';
+    showToast(ok > 0 ? '已更新 ' + ok + ' 只基金估值' : '全部更新失败，请检查网络', ok > 0 ? 'success' : 'error');
+    resetTimer();
+  }
+
+  /* ── Add fund ── */
+  function addFund() {
+    const code   = document.getElementById('iCode').value.trim();
+    const shares = parseFloat(document.getElementById('iShares').value);
+
+    if (!/^\d{6}$/.test(code))            return showToast('请输入正确的 6 位基金代码', 'error');
+    if (isNaN(shares) || shares <= 0)     return showToast('请输入有效的持仓份额', 'error');
+    if (funds.some(f => f.code === code)) return showToast('该基金代码已添加', 'error');
+
+    funds.push({ code, shares, prevNav: null, name: code, gsz: null, gszzl: null, gztime: null, loading: false, error: false });
+    save();
+    render();
+    updateSummary();
+    document.getElementById('iCode').value   = '';
+    document.getElementById('iShares').value = '';
+    showToast('基金已添加，点击「刷新估值」获取数据', 'success');
+  }
+
+  /* ── Remove fund ── */
+  window._removeFund = function (code) {
+    funds = funds.filter(f => f.code !== code);
+    save();
+    render();
+    updateSummary();
+  };
+
+  /* ── Render table ── */
+  function fmt(n, dec) { return n.toLocaleString('zh-CN', { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
+
+  function render() {
+    document.getElementById('fundCount').textContent = funds.length;
+    const tbody = document.getElementById('tbody');
+
+    if (funds.length === 0) {
+      tbody.innerHTML =
+        '<tr><td colspan="8"><div class="empty-state">' +
+        '<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">' +
+        '<rect x="2" y="3" width="20" height="18" rx="2.5"/>' +
+        '<path d="M8 12h8M12 8v8"/>' +
+        '</svg>' +
+        '<p>还没有基金持仓<br>在上方填写基金代码和持仓份额后点击「添加」</p>' +
+        '</div></td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = funds.map(f => {
+      let prevNavCell, navCell, changeCell, valueCell, profitCell;
+
+      if (f.loading) {
+        prevNavCell = '<span class="skel"></span>';
+        navCell     = '<span class="skel"></span>';
+        changeCell  = '<span class="skel"></span>';
+        valueCell   = '<span class="skel"></span>';
+        profitCell  = '<span class="skel"></span>';
+      } else if (f.error || f.gsz === null) {
+        const tag   = f.error
+          ? '<span style="color:var(--profit);font-size:12px;">获取失败</span>'
+          : '<span class="neutral">--</span>';
+        prevNavCell = f.prevNav !== null ? fmt(f.prevNav, 4) : tag;
+        navCell     = tag;
+        changeCell  = tag;
+        valueCell   = f.prevNav !== null ? fmt(f.prevNav * f.shares, 2) : tag;
+        profitCell  = '<span class="neutral">--</span>';
+      } else {
+        const prevVal = f.prevNav * f.shares;
+        const curVal  = f.gsz * f.shares;
+        const profit  = curVal - prevVal;
+        const cls     = f.gszzl > 0 ? 'profit' : f.gszzl < 0 ? 'loss' : 'neutral';
+        const sign    = f.gszzl >= 0 ? '+' : '';
+        const psign   = profit >= 0 ? '+' : '';
+
+        prevNavCell = fmt(f.prevNav, 4);
+        navCell     = fmt(f.gsz, 4);
+        changeCell  = '<span class="change-pill ' + cls + '">' + sign + fmt(f.gszzl, 2) + '%</span>';
+        valueCell   = fmt(curVal, 2);
+        profitCell  = '<span class="' + cls + '">' + psign + fmt(profit, 2) + '</span>';
+      }
+
+      const metaTime = f.gztime ? ' &nbsp;·&nbsp; 估值 ' + f.gztime : '';
+
+      return '<tr>' +
+        '<td>' +
+          '<div class="fund-name">' + (f.name !== f.code ? f.name : f.code) + '</div>' +
+          '<div class="fund-meta">' + f.code + metaTime + '</div>' +
+        '</td>' +
+        '<td>' + prevNavCell + '</td>' +
+        '<td>' + navCell + '</td>' +
+        '<td>' + changeCell + '</td>' +
+        '<td>' + fmt(f.shares, 2) + '</td>' +
+        '<td>' + valueCell + '</td>' +
+        '<td>' + profitCell + '</td>' +
+        '<td><button class="btn btn-remove" onclick="_removeFund(\'' + f.code + '\')">删除</button></td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  /* ── Summary ── */
+  function updateSummary() {
+    const setEl = (id, text, cls) => {
+      const el = document.getElementById(id);
+      el.textContent = text;
+      el.className = 'summary-value ' + cls;
+    };
+
+    if (funds.length === 0) {
+      setEl('sumValue',  '--', 'neutral');
+      setEl('sumProfit', '--', 'neutral');
+      setEl('sumChange', '--', 'neutral');
+      return;
+    }
+
+    const prevTotal = funds.reduce((s, f) => s + (f.prevNav || 0) * f.shares, 0);
+    const curTotal  = funds.reduce((s, f) => {
+      if (f.gsz !== null && !isNaN(f.gsz)) return s + f.gsz * f.shares;
+      return s + (f.prevNav || 0) * f.shares;
+    }, 0);
+
+    const hasLive = funds.some(f => f.gsz !== null && !isNaN(f.gsz) && !f.loading);
+    const profit  = curTotal - prevTotal;
+    const change  = prevTotal > 0 ? (profit / prevTotal) * 100 : 0;
+
+    const pCls = profit > 0 ? 'profit' : profit < 0 ? 'loss' : 'neutral';
+    const cCls = change > 0 ? 'profit' : change < 0 ? 'loss' : 'neutral';
+
+    setEl('sumValue', '¥' + fmt(curTotal, 2), 'neutral');
+
+    if (hasLive) {
+      setEl('sumProfit', (profit >= 0 ? '+¥' : '-¥') + fmt(Math.abs(profit), 2), pCls);
+      setEl('sumChange', (change >= 0 ? '+' : '') + fmt(change, 2) + '%', cCls);
+    } else {
+      setEl('sumProfit', '--', 'neutral');
+      setEl('sumChange', '--', 'neutral');
+    }
+  }
+
+  /* ── Auto refresh timer ── */
+  function resetTimer() {
+    if (timer) clearInterval(timer);
+    timer = setInterval(refreshAll, 60000);
+  }
+
+  /* ── Toast ── */
+  let toastTid = null;
+  function showToast(msg, type) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'toast ' + (type || 'success') + ' show';
+    if (toastTid) clearTimeout(toastTid);
+    toastTid = setTimeout(() => { el.className = 'toast ' + (type || 'success'); }, 3000);
+  }
+
+  /* ── Enter key shortcut ── */
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      const id = document.activeElement && document.activeElement.id;
+      if (id === 'iCode' || id === 'iShares') addFund();
+    }
+  });
+
+  /* ── Expose to global scope for onclick handlers ── */
+  window.addFund    = addFund;
+  window.refreshAll = refreshAll;
+
+  /* ── Boot ── */
+  load();
+  render();
+  updateSummary();
+  resetTimer();
+  if (funds.length > 0) refreshAll();
+})();
+</script>
+</body>
+</html>
