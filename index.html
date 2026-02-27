@@ -374,8 +374,8 @@
         <input id="iCode" type="text" maxlength="6" placeholder="例：110011" />
       </div>
       <div class="form-group">
-        <label>持仓份额</label>
-        <input id="iShares" type="number" placeholder="例：10000.00" min="0" step="0.01" />
+        <label>买入金额（元）</label>
+        <input id="iAmount" type="number" placeholder="例：20000.00" min="0" step="0.01" />
       </div>
       <button class="btn btn-primary" onclick="addFund()">添加</button>
     </div>
@@ -383,7 +383,7 @@
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/>
       </svg>
-      昨日净值及基金名称将在点击「刷新估值」时自动从接口获取
+      昨日净值及基金名称将在点击「刷新估值」时自动从接口获取，份额由系统自动计算
     </div>
   </div>
 
@@ -403,8 +403,8 @@
             <th>昨日净值</th>
             <th>今日估值</th>
             <th>涨跌幅</th>
-            <th>持仓份额</th>
-            <th>持仓市值</th>
+            <th>买入金额</th>
+            <th>今日市值</th>
             <th>今日盈亏</th>
             <th>操作</th>
           </tr>
@@ -419,7 +419,7 @@
     <div class="section-title">持仓汇总</div>
     <div class="summary-grid">
       <div class="summary-item">
-        <div class="summary-label">总持仓市值（元）</div>
+        <div class="summary-label">总持仓今日市值（元）</div>
         <div class="summary-value neutral" id="sumValue">--</div>
       </div>
       <div class="summary-item">
@@ -446,15 +446,15 @@
 
   /* ── Persist ── */
   function save() {
-    localStorage.setItem('fund_calc_v3', JSON.stringify(
-      funds.map(({ code, shares, prevNav, name, gsz, gszzl, gztime }) =>
-        ({ code, shares, prevNav, name, gsz, gszzl, gztime })
+    localStorage.setItem('fund_calc_v4', JSON.stringify(
+      funds.map(({ code, amount, prevNav, name, gsz, gszzl, gztime }) =>
+        ({ code, amount, prevNav, name, gsz, gszzl, gztime })
       )
     ));
   }
   function load() {
     try {
-      const raw = localStorage.getItem('fund_calc_v3');
+      const raw = localStorage.getItem('fund_calc_v4');
       if (raw) funds = JSON.parse(raw);
     } catch (_) { funds = []; }
   }
@@ -544,18 +544,18 @@
   /* ── Add fund ── */
   function addFund() {
     const code   = document.getElementById('iCode').value.trim();
-    const shares = parseFloat(document.getElementById('iShares').value);
+    const amount = parseFloat(document.getElementById('iAmount').value);
 
     if (!/^\d{6}$/.test(code))            return showToast('请输入正确的 6 位基金代码', 'error');
-    if (isNaN(shares) || shares <= 0)     return showToast('请输入有效的持仓份额', 'error');
+    if (isNaN(amount) || amount <= 0)     return showToast('请输入有效的买入金额', 'error');
     if (funds.some(f => f.code === code)) return showToast('该基金代码已添加', 'error');
 
-    funds.push({ code, shares, prevNav: null, name: code, gsz: null, gszzl: null, gztime: null, loading: false, error: false });
+    funds.push({ code, amount, prevNav: null, name: code, gsz: null, gszzl: null, gztime: null, loading: false, error: false });
     save();
     render();
     updateSummary();
     document.getElementById('iCode').value   = '';
-    document.getElementById('iShares').value = '';
+    document.getElementById('iAmount').value = '';
     showToast('基金已添加，点击「刷新估值」获取数据', 'success');
   }
 
@@ -581,7 +581,7 @@
         '<rect x="2" y="3" width="20" height="18" rx="2.5"/>' +
         '<path d="M8 12h8M12 8v8"/>' +
         '</svg>' +
-        '<p>还没有基金持仓<br>在上方填写基金代码和持仓份额后点击「添加」</p>' +
+        '<p>还没有基金持仓<br>在上方填写基金代码和买入金额后点击「添加」</p>' +
         '</div></td></tr>';
       return;
     }
@@ -595,22 +595,23 @@
         changeCell  = '<span class="skel"></span>';
         valueCell   = '<span class="skel"></span>';
         profitCell  = '<span class="skel"></span>';
-      } else if (f.error || f.gsz === null) {
+      } else if (f.error || f.gsz === null || f.prevNav === null) {
         const tag   = f.error
           ? '<span style="color:var(--profit);font-size:12px;">获取失败</span>'
           : '<span class="neutral">--</span>';
         prevNavCell = f.prevNav !== null ? fmt(f.prevNav, 4) : tag;
         navCell     = tag;
         changeCell  = tag;
-        valueCell   = f.prevNav !== null ? fmt(f.prevNav * f.shares, 2) : tag;
+        valueCell   = tag;
         profitCell  = '<span class="neutral">--</span>';
       } else {
-        const prevVal = f.prevNav * f.shares;
-        const curVal  = f.gsz * f.shares;
-        const profit  = curVal - prevVal;
-        const cls     = f.gszzl > 0 ? 'profit' : f.gszzl < 0 ? 'loss' : 'neutral';
-        const sign    = f.gszzl >= 0 ? '+' : '';
-        const psign   = profit >= 0 ? '+' : '';
+        // shares = 买入金额 / 昨日净值
+        const shares = f.amount / f.prevNav;
+        const curVal = shares * f.gsz;
+        const profit = curVal - f.amount;
+        const cls    = f.gszzl > 0 ? 'profit' : f.gszzl < 0 ? 'loss' : 'neutral';
+        const sign   = f.gszzl >= 0 ? '+' : '';
+        const psign  = profit >= 0 ? '+' : '';
 
         prevNavCell = fmt(f.prevNav, 4);
         navCell     = fmt(f.gsz, 4);
@@ -629,7 +630,7 @@
         '<td>' + prevNavCell + '</td>' +
         '<td>' + navCell + '</td>' +
         '<td>' + changeCell + '</td>' +
-        '<td>' + fmt(f.shares, 2) + '</td>' +
+        '<td>¥' + fmt(f.amount, 2) + '</td>' +
         '<td>' + valueCell + '</td>' +
         '<td>' + profitCell + '</td>' +
         '<td><button class="btn btn-remove" onclick="_removeFund(\'' + f.code + '\')">删除</button></td>' +
@@ -652,10 +653,14 @@
       return;
     }
 
-    const prevTotal = funds.reduce((s, f) => s + (f.prevNav || 0) * f.shares, 0);
+    // prevTotal = 所有基金买入金额之和
+    const prevTotal = funds.reduce((s, f) => s + (f.amount || 0), 0);
     const curTotal  = funds.reduce((s, f) => {
-      if (f.gsz !== null && !isNaN(f.gsz)) return s + f.gsz * f.shares;
-      return s + (f.prevNav || 0) * f.shares;
+      if (f.gsz !== null && !isNaN(f.gsz) && f.prevNav) {
+        const shares = f.amount / f.prevNav;
+        return s + shares * f.gsz;
+      }
+      return s + (f.amount || 0);
     }, 0);
 
     const hasLive = funds.some(f => f.gsz !== null && !isNaN(f.gsz) && !f.loading);
@@ -696,7 +701,7 @@
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') {
       const id = document.activeElement && document.activeElement.id;
-      if (id === 'iCode' || id === 'iShares') addFund();
+      if (id === 'iCode' || id === 'iAmount') addFund();
     }
   });
 
