@@ -470,6 +470,31 @@
       color: var(--text-muted); padding: 10px 20px; font-size: 14px;
     }
     .btn-cancel-modal:hover { border-color: var(--neutral); color: var(--text-primary); }
+
+    /* ── NAV mode badge ── */
+    .nav-mode-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 5px 12px; border-radius: 20px;
+      font-size: 12px; font-weight: 600;
+    }
+    .nav-mode-badge.estimated {
+      background: rgba(139,144,184,0.12);
+      border: 1px solid rgba(139,144,184,0.25);
+      color: var(--text-muted);
+    }
+    .nav-mode-badge.confirmed {
+      background: rgba(34,196,94,0.12);
+      border: 1px solid rgba(34,196,94,0.35);
+      color: var(--loss);
+    }
+    .nav-mode-badge .badge-dot {
+      width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    }
+    .nav-mode-badge.estimated .badge-dot { background: var(--text-muted); }
+    .nav-mode-badge.confirmed .badge-dot {
+      background: var(--loss);
+      animation: pulse 2s ease-in-out infinite;
+    }
     /* ── Sort arrows in th ── */
     .th-sort { cursor: default; user-select: none; }
     .sort-arrows {
@@ -501,7 +526,7 @@
     </div>
     <div class="header-right">
       <div class="update-time" id="updateTime">数据尚未更新</div>
-      <div class="auto-badge">
+      <div class="auto-badge" id="autoRefreshBadge">
         <span class="pulse-dot"></span>
         每 60 秒自动刷新
       </div>
@@ -538,7 +563,8 @@
   <!-- Actions bar -->
   <div class="actions-bar">
     <div class="fund-count">已添加 <span id="fundCount">0</span> 只基金</div>
-    <div style="display:flex;gap:8px;">
+    <div style="display:flex;gap:8px;align-items:center;">
+      <div id="navModeBadge" class="nav-mode-badge"></div>
       <button class="btn btn-add-open" onclick="_openAddModal()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
         添加基金
@@ -559,8 +585,8 @@
             <th>今日盈亏</th>
             <th>累计收益</th>
             <th>昨日净值</th>
-            <th>今日估值</th>
-            <th>今日市值</th>
+            <th id="thTodayNav">今日估值</th>
+            <th id="thTodayVal">今日市值</th>
             <th>操作</th>
           </tr>
         </thead>
@@ -668,19 +694,36 @@
   let timer = null;
 
   /* ── Persist ── */
+  function getTodayStr() {
+    const d = new Date();
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+
   function save() {
-    localStorage.setItem('fund_calc_v5', JSON.stringify(
-      funds.map(({ code, amount, costNav, prevNav, name, gsz, gszzl, gztime }) =>
-        ({ code, amount, costNav, prevNav, name, gsz, gszzl, gztime })
+    localStorage.setItem('fund_calc_v6', JSON.stringify(
+      funds.map(({ code, amount, costNav, prevNav, confirmedNav, navConfirmed, confirmedDate, name, gsz, gszzl, gztime, jzrq }) =>
+        ({ code, amount, costNav, prevNav, confirmedNav, navConfirmed, confirmedDate, name, gsz, gszzl, gztime, jzrq })
       )
     ));
   }
   function load() {
     try {
-      const raw = localStorage.getItem('fund_calc_v5') || localStorage.getItem('fund_calc_v4');
+      const raw = localStorage.getItem('fund_calc_v6')
+                || localStorage.getItem('fund_calc_v5')
+                || localStorage.getItem('fund_calc_v4');
       if (raw) {
         funds = JSON.parse(raw);
-        funds.forEach(f => { if (f.costNav === undefined) f.costNav = null; });
+        funds.forEach(f => {
+          if (f.costNav      === undefined) f.costNav      = null;
+          if (f.confirmedNav === undefined) f.confirmedNav = null;
+          if (f.navConfirmed  === undefined) f.navConfirmed  = false;
+          if (f.jzrq          === undefined) f.jzrq          = null;
+          if (f.confirmedDate === undefined) f.confirmedDate = null;
+        });
+        // 迁移后立即以新格式保存
+        save();
       }
     } catch (_) { funds = []; }
   }
@@ -725,6 +768,44 @@
     });
   }
 
+  /* ── 二次接口：东方财富 pingzhongdata（JS 文件，无 CORS 限制） ── */
+  function fetchPingzhongdata(code) {
+    return new Promise((resolve, reject) => {
+      const scriptId = '_pzd_' + code;
+      // 清理上次残留的全局变量
+      delete window.Data_netWorthTrend;
+
+      const existing = document.getElementById(scriptId);
+      if (existing) existing.remove();
+
+      let settled = false;
+      const tid = setTimeout(() => {
+        if (settled) return;
+        settled = true; cleanup(); reject(new Error('timeout'));
+      }, 10000);
+
+      function cleanup() {
+        clearTimeout(tid);
+        const s = document.getElementById(scriptId);
+        if (s) s.remove();
+      }
+
+      const script = document.createElement('script');
+      script.id  = scriptId;
+      script.src = 'https://fund.eastmoney.com/pingzhongdata/' + code + '.js?v=' + Date.now();
+      script.onload = function () {
+        if (settled) return;
+        settled = true; cleanup();
+        resolve(window.Data_netWorthTrend || []);
+      };
+      script.onerror = function () {
+        if (settled) return;
+        settled = true; cleanup(); reject(new Error('load error'));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
   /* ── Refresh all (portfolio + watchlist) sequentially ── */
   async function refreshAll() {
     const allItems = [...funds, ...watchlist];
@@ -743,18 +824,71 @@
     for (const f of allItems) {
       try {
         const data = await fetchOne(f.code);
-        if (data.name)   f.name    = data.name;
-        if (data.dwjz)   f.prevNav = parseFloat(data.dwjz);
-        if (data.dwjz && !f.costNav) f.costNav = parseFloat(data.dwjz); // 首次刷新时锁定成本净值
-        if (data.gsz)    f.gsz     = parseFloat(data.gsz);
-        if (data.gszzl !== undefined) f.gszzl = parseFloat(data.gszzl);
-        if (data.gztime) f.gztime  = data.gztime;
+        if (data.name) f.name = data.name;
+        if (data.jzrq)  f.jzrq  = data.jzrq;
+        // 今天已有确认净值时，不用估值覆盖 gsz / gszzl
+        const alreadyConfirmedToday = (f.confirmedDate === getTodayStr());
+        if (!alreadyConfirmedToday) {
+          if (data.gsz)  f.gsz  = parseFloat(data.gsz);
+          if (data.gszzl !== undefined) f.gszzl = parseFloat(data.gszzl);
+          if (data.gztime) f.gztime = data.gztime;
+        }
+
+        // 判断今日净值是否已确认：
+        //   精确判断：jzrq == 今天，API 已把 dwjz 更新为今日确认净值
+        //   时间判断仅用于全局 badge 提示，不影响数值显示
+        const todayStr    = getTodayStr();
+        const apiConfirmed = data.jzrq === todayStr;
+
+        if (alreadyConfirmedToday) {
+          // 今天已通过 pingzhongdata 确认过净值：强制还原确认状态
+          // （防止 localStorage 里 navConfirmed/gsz 被旧代码覆盖成估值）
+          f.navConfirmed = true;
+          if (f.confirmedNav) {
+            f.gsz = f.confirmedNav;
+            if (f.prevNav) f.gszzl = parseFloat(((f.confirmedNav - f.prevNav) / f.prevNav * 100).toFixed(4));
+          }
+        } else if (apiConfirmed) {
+          // fundgz 本身已更新为今日净值（jzrq == 今天）
+          f.navConfirmed  = true;
+          f.confirmedNav  = parseFloat(data.dwjz);
+          f.confirmedDate = todayStr;
+        } else {
+          // 仍为估值阶段：更新昨日净值基准
+          f.navConfirmed = false;
+          f.confirmedNav = null;
+          if (data.dwjz) f.prevNav = parseFloat(data.dwjz);
+          if (data.dwjz && !f.costNav) f.costNav = parseFloat(data.dwjz);
+        }
         f.loading = false;
         ok++;
       } catch (_) {
         f.loading = false;
         f.error = true;
       }
+
+      // ── 二次请求：15点后，对持仓基金尝试从 pingzhongdata 获取今日确认净值 ──
+      const nowH = new Date().getHours();
+      const todayStr2 = getTodayStr();
+      const isPortfolio = funds.includes(f);
+      if (isPortfolio && nowH >= 15 && f.confirmedDate !== todayStr2 && !f.error) {
+        try {
+          const trend = await fetchPingzhongdata(f.code);
+          if (trend && trend.length > 0) {
+            const last = trend[trend.length - 1];
+            const lastDate = new Date(last.x + 8 * 3600 * 1000).toISOString().slice(0, 10);
+            if (lastDate === todayStr2) {
+              const cnav = last.y;
+              f.navConfirmed  = true;
+              f.confirmedNav  = cnav;
+              f.confirmedDate = todayStr2;
+              f.gsz   = cnav;
+              if (f.prevNav) f.gszzl = parseFloat(((cnav - f.prevNav) / f.prevNav * 100).toFixed(4));
+            }
+          }
+        } catch (_) { /* 静默回退，继续显示估值 */ }
+      }
+
       render();
       renderRanking();
     }
@@ -767,8 +901,8 @@
     document.getElementById('updateTime').innerHTML =
       '最后更新：<span>' + now.toLocaleTimeString('zh-CN') + '</span>';
 
+    updateNavModeUI();
     btn.disabled = false;
-    btn.innerHTML = '刷新估值';
     showToast(ok > 0 ? '已更新 ' + ok + ' 只基金数据' : '全部更新失败，请检查网络', ok > 0 ? 'success' : 'error');
     resetTimer();
   }
@@ -782,7 +916,7 @@
     if (isNaN(amount) || amount <= 0)     return showToast('请输入有效的买入金额', 'error');
     if (funds.some(f => f.code === code)) return showToast('该基金代码已添加', 'error');
 
-    funds.push({ code, amount, costNav: null, prevNav: null, name: code, gsz: null, gszzl: null, gztime: null, loading: false, error: false });
+    funds.push({ code, amount, costNav: null, prevNav: null, confirmedNav: null, navConfirmed: false, confirmedDate: null, name: code, gsz: null, gszzl: null, gztime: null, jzrq: null, loading: false, error: false });
     save();
     render();
     updateSummary();
@@ -997,16 +1131,14 @@
         profitCell = '<span class="neutral">--</span>';
         accumCell  = '<span class="neutral">--</span>';
       } else {
-        // 今日盈亏：基于昨日净值
-        const shares  = f.amount / f.prevNav;
-        const curVal  = shares * f.gsz;
-        const profit  = curVal - f.amount;  // 今日 = 当前市值 - 昨日成本
-        const todayProfit = (f.gsz - f.prevNav) * shares; // 精确今日变动
-
-        // 累计收益：基于首次刷新锁定的成本净值
-        const costNav   = f.costNav || f.prevNav;
-        const costShares = f.amount / costNav;
-        const accumProfit = costShares * f.gsz - f.amount;
+        // 当前净值：已出净值用 confirmedNav，否则用 gsz
+        const currentNav  = f.navConfirmed ? f.confirmedNav : f.gsz;
+        const costNav     = f.costNav || f.prevNav;
+        // 固定份额 = 买入金额 ÷ 成本净值（首次锁定，不随日期变动）
+        const shares      = f.amount / costNav;
+        const curVal      = shares * currentNav;
+        const todayProfit = f.prevNav ? (currentNav - f.prevNav) * shares : 0;
+        const accumProfit = curVal - f.amount;
 
         const cls   = f.gszzl > 0 ? 'profit' : f.gszzl < 0 ? 'loss' : 'neutral';
         const sign  = f.gszzl >= 0 ? '+' : '';
@@ -1014,20 +1146,25 @@
         const aSign = accumProfit >= 0 ? '+' : '';
         const aCls  = accumProfit > 0 ? 'profit' : accumProfit < 0 ? 'loss' : 'neutral';
 
-        prevNavCell = fmt(f.prevNav, 4);
-        navCell     = fmt(f.gsz, 4);
+        prevNavCell = f.prevNav ? fmt(f.prevNav, 4) : '--';
+        navCell     = fmt(currentNav, 4);
         changeCell  = '<span class="change-pill ' + cls + '">' + sign + fmt(f.gszzl, 2) + '%</span>';
         valueCell   = fmt(curVal, 2);
         profitCell  = '<span class="' + cls + '">' + tSign + fmt(todayProfit, 2) + '</span>';
         accumCell   = '<span class="' + aCls + '">' + aSign + fmt(accumProfit, 2) + '</span>';
       }
 
-      const metaTime = f.gztime ? ' &nbsp;·&nbsp; 估值 ' + f.gztime : '';
+      // 已出净值标记 / 净值日期
+      const confirmedTag = f.navConfirmed
+        ? ' &nbsp;<span style="color:#f0a500;font-size:11px;font-weight:700;">✓ 已出净值</span>'
+        : (f.jzrq ? ' &nbsp;<span style="color:var(--text-muted);font-size:11px;">净值 ' + f.jzrq + '</span>' : '');
+      // 已出净值时不再重复展示 gztime（估值时间没有参考价值）
+      const metaTime = (!f.navConfirmed && f.gztime) ? ' &nbsp;·&nbsp; 估值 ' + f.gztime : '';
 
       return '<tr>' +
         '<td>' +
           '<div class="fund-name">' + (f.name !== f.code ? f.name : f.code) + '</div>' +
-          '<div class="fund-meta">' + f.code + metaTime + '</div>' +
+          '<div class="fund-meta">' + f.code + metaTime + confirmedTag + '</div>' +
         '</td>' +
         '<td id="amt_' + f.code + '">¥' + fmt(f.amount, 2) + '</td>' +
         '<td>' + changeCell + '</td>' +
@@ -1064,9 +1201,11 @@
     // prevTotal = 所有基金买入金额之和
     const prevTotal = funds.reduce((s, f) => s + (f.amount || 0), 0);
     const curTotal  = funds.reduce((s, f) => {
-      if (f.gsz !== null && !isNaN(f.gsz) && f.prevNav) {
-        const shares = f.amount / f.prevNav;
-        return s + shares * f.gsz;
+      const currentNav = f.navConfirmed ? f.confirmedNav : f.gsz;
+      const costNav    = f.costNav || f.prevNav;
+      if (currentNav !== null && !isNaN(currentNav) && costNav) {
+        const shares = f.amount / costNav;
+        return s + shares * currentNav;
       }
       return s + (f.amount || 0);
     }, 0);
@@ -1089,10 +1228,72 @@
     }
   }
 
+  /* ── Nav mode UI ── */
+  function updateNavModeUI() {
+    const badge  = document.getElementById('navModeBadge');
+    const thNav  = document.getElementById('thTodayNav');
+    const thVal  = document.getElementById('thTodayVal');
+    const refBtn = document.getElementById('refreshBtn');
+    if (!badge) return;
+
+    // 任意基金 API 已确认（jzrq == 今天）→ 显示"已出净值"
+    const confirmedCount = funds.filter(f => f.navConfirmed).length;
+    if (confirmedCount > 0) {
+      const label = confirmedCount === funds.length ? '已出净值' : confirmedCount + '/' + funds.length + ' 已出净值';
+      badge.className = 'nav-mode-badge confirmed';
+      badge.innerHTML = '<span class="badge-dot"></span>' + label;
+      if (thNav)  thNav.textContent  = '今日净值';
+      if (thVal)  thVal.textContent  = '今日持仓';
+      if (refBtn) refBtn.textContent = '刷新净值';
+      return;
+    }
+
+    // 否则按当前时间显示市场状态
+    const now = new Date();
+    const h = now.getHours(), m = now.getMinutes();
+    const todayStr = getTodayStr();
+    const hasToday = funds.some(f => f.gztime && f.gztime.slice(0, 10) === todayStr);
+
+    if (h < 9 || (h === 9 && m < 30)) {
+      badge.className = 'nav-mode-badge estimated';
+      badge.innerHTML = '<span class="badge-dot"></span>盘前休市';
+    } else if (h < 15) {
+      badge.className = 'nav-mode-badge estimated';
+      badge.innerHTML = '<span class="badge-dot"></span>盘中实时估值';
+    } else if (h < 21 || (h === 21 && m < 30)) {
+      badge.className = 'nav-mode-badge estimated';
+      badge.innerHTML = '<span class="badge-dot"></span>已收盘 · 待出净值';
+    } else {
+      // 21:30 后，净值应已陆续发布，但 API 今晚不更新，等明早刷新
+      badge.className = 'nav-mode-badge estimated';
+      badge.innerHTML = '<span class="badge-dot"></span>净值陆续发布中';
+    }
+
+    if (thNav)  thNav.textContent  = '今日估值';
+    if (thVal)  thVal.textContent  = '今日市值';
+    if (refBtn) refBtn.textContent = '刷新估值';
+  }
+
   /* ── Auto refresh timer ── */
   function resetTimer() {
     if (timer) clearInterval(timer);
-    timer = setInterval(refreshAll, 60000);
+
+    // 所有持仓基金都已出确认净值 → 停止自动刷新
+    const todayStr = getTodayStr();
+    const allConfirmed = funds.length > 0 && funds.every(f => f.confirmedDate === todayStr);
+    if (allConfirmed) {
+      const badge = document.getElementById('autoRefreshBadge');
+      if (badge) badge.innerHTML = '✓ 净值已全部确认，已停止自动刷新';
+      return;
+    }
+
+    // 盘中 60 秒，收盘后 5 分钟
+    const now = new Date();
+    const afterClose = now.getHours() >= 15;
+    const interval = afterClose ? 300000 : 60000;
+    const badge = document.getElementById('autoRefreshBadge');
+    if (badge) badge.innerHTML = '<span class="pulse-dot"></span>每 ' + (interval / 1000) + ' 秒自动刷新';
+    timer = setInterval(() => { refreshAll(); }, interval);
   }
 
   /* ── Toast ── */
@@ -1126,6 +1327,7 @@
   loadWatchlist();
   render();
   updateSummary();
+  updateNavModeUI();
   resetTimer();
   if (funds.length > 0 || watchlist.length > 0) refreshAll();
 })();
