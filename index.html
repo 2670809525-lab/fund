@@ -1675,11 +1675,11 @@
   let _sbCache  = {};   // 本地镜像：{ funds, watchlist, pnl_history }
   let _sbLoaded = false; // 每次页面加载只从云端拉取一次
 
+  const SB_URL = 'https://jonjgepdiybwrvncfokp.supabase.co';
+  const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpvbmpnZXBkaXlid3J2bmNmb2twIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2MTMzNzQsImV4cCI6MjA4ODE4OTM3NH0.wgR5FkOauG4Y0H3mr3DAa0FuM4XlVO8XOh3CLbgwpq0';
   (function _sbInit() {
-    const url = localStorage.getItem('sb_url') || 'https://jonjgepdiybwrvncfokp.supabase.co';
-    const key = localStorage.getItem('sb_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpvbmpnZXBkaXlid3J2bmNmb2twIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2MTMzNzQsImV4cCI6MjA4ODE4OTM3NH0.wgR5FkOauG4Y0H3mr3DAa0FuM4XlVO8XOh3CLbgwpq0';
-    if (url && key && window.supabase) {
-      try { _sbClient = window.supabase.createClient(url, key); } catch (_) {}
+    if (window.supabase) {
+      try { _sbClient = window.supabase.createClient(SB_URL, SB_KEY); } catch (_) {}
     }
   })();
 
@@ -2286,11 +2286,13 @@
     if (!_sbClient || !_sbUser) { showToast('❌ 未登录或未初始化', 'error'); return; }
     try {
       showToast('☁ 正在加载云端数据…', 'success');
-      const { data, error } = await _sbClient
+      const query = _sbClient
         .from('user_data')
         .select('funds, watchlist, pnl_history, ai_key')
         .eq('user_id', _sbUser.id)
         .maybeSingle();
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('请求超时(10秒)')), 10000));
+      const { data, error } = await Promise.race([query, timeout]);
       if (error) { showToast('❌ 查询错误: ' + error.message, 'error'); return; }
       if (!data) {
         // 云端没有数据行
