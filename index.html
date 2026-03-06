@@ -1733,7 +1733,8 @@
   let _sbClient = null;
   let _sbUser   = null;
   let _sbCache  = {};   // 本地镜像：{ funds, watchlist, pnl_history }
-  let _sbLoaded = false; // 每次页面加载只从云端拉取一次
+  let _sbLoaded = false;
+  let _sbSyncing = false; // 云端同步中，禁止回写
 
   const SB_URL = 'https://jonjgepdiybwrvncfokp.supabase.co';
   const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpvbmpnZXBkaXlid3J2bmNmb2twIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2MTMzNzQsImV4cCI6MjA4ODE4OTM3NH0.wgR5FkOauG4Y0H3mr3DAa0FuM4XlVO8XOh3CLbgwpq0';
@@ -2331,8 +2332,9 @@
   let _sbSaveTimer = null;
 
   async function _sbSave(patch) {
-    if (!_sbClient) { console.warn('[sb] save: no client'); return; }
-    if (!_sbUser)   { showToast('☁ 未登录，无法保存到云端', 'error'); return; }
+    if (_sbSyncing) return; // 云端同步中，不回写
+    if (!_sbClient) return;
+    if (!_sbUser) return;
     Object.assign(_sbCache, patch);
 
     if (_sbSaveTimer) clearTimeout(_sbSaveTimer);
@@ -2358,6 +2360,7 @@
   /* ── 从云端拉取并覆盖本地 ── */
   async function _sbLoadCloud(retry) {
     if (!_sbClient || !_sbUser) return;
+    _sbSyncing = true; // 加锁：禁止回写
     const attempt = retry || 1;
     try {
       showToast('☁ 正在加载云端数据…', 'success');
@@ -2383,11 +2386,14 @@
             ({ code, name, tag, prevNav, gsz, gszzl, gztime, jzrq, confirmedNav, navConfirmed, confirmedDate })
           );
           _sbCache = { funds: localFunds, watchlist: localWatch, pnl_history: pnlHistory };
-          _sbSave(_sbCache); // 不 await，后台执行
+          _sbSyncing = false; // 先解锁再保存
+          _sbSave(_sbCache);
           showToast('☁ 本地数据已同步到云端', 'success');
         } else {
           showToast('☁ 云端暂无数据', 'success');
+          _sbSyncing = false;
         }
+        _sbLoaded = true;
         return;
       }
       _sbCache = {
@@ -2433,8 +2439,10 @@
       updateSummary();
       if (funds.length > 0 || watchlist.length > 0) refreshAll();
       showToast('✅ 云端数据已加载：' + funds.length + '只基金', 'success');
+      _sbSyncing = false; // 解锁
     } catch (e) {
-      if (attempt < 3) { showToast('☁ 重试中(' + attempt + '/3)…', 'success'); return _sbLoadCloud(attempt + 1); }
+      if (attempt < 3) { return _sbLoadCloud(attempt + 1); }
+      _sbSyncing = false; // 解锁
       showToast('❌ 异常: ' + e.message, 'error');
     }
   }
