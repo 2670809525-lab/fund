@@ -2329,33 +2329,30 @@
 
   /* ── Supabase 异步存储 ── */
   let _sbSaveTimer = null;
-  let _sbSavePending = null;
 
   async function _sbSave(patch) {
-    if (!_sbClient || !_sbUser) return;
+    if (!_sbClient) { console.warn('[sb] save: no client'); return; }
+    if (!_sbUser)   { showToast('☁ 未登录，无法保存到云端', 'error'); return; }
     Object.assign(_sbCache, patch);
 
-    // 防抖：连续修改合并为一次保存（500ms）
     if (_sbSaveTimer) clearTimeout(_sbSaveTimer);
-    const saveData = { ...(_sbSavePending || {}), ...patch };
-    _sbSavePending = saveData;
-
     _sbSaveTimer = setTimeout(async () => {
-      const data = _sbSavePending;
-      _sbSavePending = null;
       try {
-        const { error } = await _sbClient.from('user_data').upsert({
+        const payload = {
           user_id: _sbUser.id,
           ..._sbCache,
           updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' });
+        };
+        const { error } = await _sbClient.from('user_data').upsert(payload, { onConflict: 'user_id' });
         if (error) {
-          showToast('☁ 云端保存失败: ' + error.message, 'error');
+          showToast('☁ 保存失败: ' + error.message, 'error');
+        } else {
+          showToast('☁ 已同步到云端', 'success');
         }
       } catch (e) {
-        showToast('☁ 云端保存异常: ' + e.message, 'error');
+        showToast('☁ 保存异常: ' + e.message, 'error');
       }
-    }, 500);
+    }, 800);
   }
 
   /* ── 从云端拉取并覆盖本地 ── */
