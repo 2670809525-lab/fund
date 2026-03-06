@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>基金收益计算器</title>
+  <title>养基必涨</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <style>
     :root {
@@ -759,6 +759,45 @@
     .arr:hover { color: var(--text-primary); }
     .arr.active { color: var(--accent); }
 
+    /* ── 隐私模式 ── */
+    .privacy-toggle {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: none; border: 1px solid var(--border);
+      border-radius: 6px; padding: 4px 10px; cursor: pointer;
+      color: var(--text-muted); font-size: 12px; transition: all 0.15s;
+    }
+    .privacy-toggle:hover { border-color: var(--border-light); color: var(--text-primary); }
+    .privacy-toggle.on { border-color: var(--accent); color: var(--accent); }
+    .privacy-toggle svg { width: 14px; height: 14px; }
+    .privacy-dropdown {
+      position: absolute; top: 100%; right: 0; margin-top: 4px;
+      background: var(--bg-card); border: 1px solid var(--border-light);
+      border-radius: 10px; padding: 8px 0; min-width: 160px; z-index: 300;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.4); display: none;
+    }
+    .privacy-dropdown.show { display: block; }
+    .privacy-opt {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 14px; font-size: 12px; color: var(--text-secondary);
+      cursor: pointer; transition: background 0.1s;
+    }
+    .privacy-opt:hover { background: var(--bg-input); }
+    .privacy-chk {
+      width: 14px; height: 14px; border-radius: 4px;
+      border: 1px solid var(--border-light); display: flex;
+      align-items: center; justify-content: center; flex-shrink: 0;
+      transition: all 0.15s;
+    }
+    .privacy-chk.checked { background: var(--accent); border-color: var(--accent); }
+    .privacy-chk.checked::after { content: '✓'; color: #fff; font-size: 10px; }
+    td.masked, .summary-value.masked { user-select: none; }
+    td.masked > *, .summary-value.masked { font-size: 0 !important; }
+    td.masked::after, .summary-value.masked::after {
+      content: '******'; font-size: 13px; color: var(--text-muted);
+      letter-spacing: 1px;
+    }
+    .summary-value.masked::after { font-size: 20px; }
+
     /* ══ 基金大盘 ══ */
     .mr-wrap   { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:12px; }
     .mr-tabs   { display:flex; gap:6px; }
@@ -1256,6 +1295,15 @@
     <div class="fund-count">已添加 <span id="fundCount">0</span> 只基金</div>
     <div style="display:flex;gap:8px;align-items:center;">
       <div id="navModeBadge" class="nav-mode-badge"></div>
+      <div style="position:relative;" id="privacyWrap">
+        <button class="privacy-toggle" id="privacyBtn" onclick="_togglePrivacyMenu()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="privacyIcon">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+          <span id="privacyLabel">隐私</span>
+        </button>
+        <div class="privacy-dropdown" id="privacyMenu"></div>
+      </div>
       <button class="btn btn-add-open" onclick="_openAddModal()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
         添加基金
@@ -1271,15 +1319,16 @@
         <thead>
           <tr>
             <th data-col="0">基金<span class="col-resizer"></span></th>
-            <th data-col="1">持仓金额<span class="col-resizer"></span></th>
-            <th data-col="2">涨跌幅<span class="col-resizer"></span></th>
-            <th data-col="3">今日盈亏<span class="col-resizer"></span></th>
-            <th data-col="4">累计收益<span class="col-resizer"></span></th>
-            <th data-col="5">昨日净值<span class="col-resizer"></span></th>
-            <th data-col="6" id="thTodayNav">今日估值<span class="col-resizer"></span></th>
-            <th data-col="7">持仓成本<span class="col-resizer"></span></th>
-            <th data-col="8">持仓份额<span class="col-resizer"></span></th>
-            <th data-col="9">操作</th>
+            <th data-col="1" class="th-sort">持仓金额<span class="sort-arrows"><button class="arr" onclick="_sortFunds('amount',false)">▲</button><button class="arr" onclick="_sortFunds('amount',true)">▼</button></span><span class="col-resizer"></span></th>
+            <th data-col="2" class="th-sort">涨跌幅<span class="sort-arrows"><button class="arr" onclick="_sortFunds('gszzl',false)">▲</button><button class="arr" onclick="_sortFunds('gszzl',true)">▼</button></span><span class="col-resizer"></span></th>
+            <th data-col="3" class="th-sort">今日盈亏<span class="sort-arrows"><button class="arr" onclick="_sortFunds('todayProfit',false)">▲</button><button class="arr" onclick="_sortFunds('todayProfit',true)">▼</button></span><span class="col-resizer"></span></th>
+            <th data-col="4" class="th-sort">累计收益<span class="sort-arrows"><button class="arr" onclick="_sortFunds('accum',false)">▲</button><button class="arr" onclick="_sortFunds('accum',true)">▼</button></span><span class="col-resizer"></span></th>
+            <th data-col="5" class="th-sort">累计收益率<span class="sort-arrows"><button class="arr" onclick="_sortFunds('accumRate',false)">▲</button><button class="arr" onclick="_sortFunds('accumRate',true)">▼</button></span><span class="col-resizer"></span></th>
+            <th data-col="6">昨日净值<span class="col-resizer"></span></th>
+            <th data-col="7" id="thTodayNav">今日估值<span class="col-resizer"></span></th>
+            <th data-col="8">持仓成本<span class="col-resizer"></span></th>
+            <th data-col="9">持仓份额<span class="col-resizer"></span></th>
+            <th data-col="10">操作</th>
           </tr>
         </thead>
         <tbody id="tbody"></tbody>
@@ -1620,7 +1669,7 @@
 <!-- ── Auth Modal ── -->
 <div class="auth-modal" id="authModal">
   <div class="auth-box">
-    <div class="auth-title">基金收益计算器</div>
+    <div class="auth-title">养基必涨</div>
     <div class="auth-subtitle">请登录以查看持仓数据</div>
     <div class="auth-form" style="margin-top:8px;">
       <div class="form-group">
@@ -2268,22 +2317,40 @@
   }
 
   /* ── Supabase 异步存储 ── */
+  let _sbSaveTimer = null;
+  let _sbSavePending = null;
+
   async function _sbSave(patch) {
     if (!_sbClient || !_sbUser) return;
     Object.assign(_sbCache, patch);
-    try {
-      const { error } = await _sbClient.from('user_data').upsert({
-        user_id: _sbUser.id,
-        ..._sbCache,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'user_id' });
-      if (error) console.warn('[sb] save:', error.message);
-    } catch (e) { console.warn('[sb] save exception:', e); }
+
+    // 防抖：连续修改合并为一次保存（500ms）
+    if (_sbSaveTimer) clearTimeout(_sbSaveTimer);
+    const saveData = { ...(_sbSavePending || {}), ...patch };
+    _sbSavePending = saveData;
+
+    _sbSaveTimer = setTimeout(async () => {
+      const data = _sbSavePending;
+      _sbSavePending = null;
+      try {
+        const { error } = await _sbClient.from('user_data').upsert({
+          user_id: _sbUser.id,
+          ..._sbCache,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'user_id' });
+        if (error) {
+          showToast('☁ 云端保存失败: ' + error.message, 'error');
+        }
+      } catch (e) {
+        showToast('☁ 云端保存异常: ' + e.message, 'error');
+      }
+    }, 500);
   }
 
   /* ── 从云端拉取并覆盖本地 ── */
-  async function _sbLoadCloud() {
-    if (!_sbClient || !_sbUser) { showToast('❌ 未登录或未初始化', 'error'); return; }
+  async function _sbLoadCloud(retry) {
+    if (!_sbClient || !_sbUser) return;
+    const attempt = retry || 1;
     try {
       showToast('☁ 正在加载云端数据…', 'success');
       const query = _sbClient
@@ -2291,9 +2358,12 @@
         .select('funds, watchlist, pnl_history, ai_key')
         .eq('user_id', _sbUser.id)
         .maybeSingle();
-      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('请求超时(10秒)')), 10000));
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('请求超时')), 20000));
       const { data, error } = await Promise.race([query, timeout]);
-      if (error) { showToast('❌ 查询错误: ' + error.message, 'error'); return; }
+      if (error) {
+        if (attempt < 3) { showToast('☁ 重试中(' + attempt + '/3)…', 'success'); return _sbLoadCloud(attempt + 1); }
+        showToast('❌ 查询错误: ' + error.message, 'error'); return;
+      }
       if (!data) {
         // 云端没有数据行
         if (funds.length > 0 || watchlist.length > 0) {
@@ -2350,11 +2420,15 @@
         pnlHistory = data.pnl_history;
         localStorage.setItem(PNL_KEY, JSON.stringify(pnlHistory));
       }
+      _sbLoaded = true;
       render();
       updateSummary();
       if (funds.length > 0 || watchlist.length > 0) refreshAll();
       showToast('✅ 云端数据已加载：' + funds.length + '只基金', 'success');
-    } catch (e) { showToast('❌ 异常: ' + e.message, 'error'); }
+    } catch (e) {
+      if (attempt < 3) { showToast('☁ 重试中(' + attempt + '/3)…', 'success'); return _sbLoadCloud(attempt + 1); }
+      showToast('❌ 异常: ' + e.message, 'error');
+    }
   }
 
   /* ── 渲染 Header 用户区 ── */
@@ -2392,9 +2466,7 @@
         // 已登录：隐藏登录窗，显示主内容
         document.getElementById('authModal').classList.remove('open');
         document.getElementById('appContent').style.display = '';
-        // 无论什么事件，只要有用户且本次页面还没加载过，就拉云端数据
         if (!_sbLoaded) {
-          _sbLoaded = true;
           await _sbLoadCloud();
         }
       } else {
@@ -2429,12 +2501,8 @@
   };
 
   window._sbLogout = function () {
-    // 直接清除 localStorage 里的 Supabase session，不发网络请求
-    const projectRef = 'jonjgepdiybwrvncfokp';
     Object.keys(localStorage).forEach(k => {
-      if (k.startsWith('sb-' + projectRef) || k === 'supabase.auth.token') {
-        localStorage.removeItem(k);
-      }
+      if (k.startsWith('sb-') || k.includes('supabase')) localStorage.removeItem(k);
     });
     _sbUser = null;
     _sbCache = {};
@@ -2866,13 +2934,157 @@
   function fmt(n, dec) { return n.toLocaleString('zh-CN', { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
   function fmtMD(s) { return s ? s.slice(5, 10).replace('-', '.') : ''; }
 
+  /* ── 持仓排序 ── */
+  let _fundSortKey = null;
+  let _fundSortDesc = true;
+
+  function _getFundSortValue(f, key) {
+    const todayStr = getTodayStr();
+    const hasTodayData = f.navConfirmed || (f.gztime && f.gztime.slice(0, 10) === todayStr);
+    if (key === 'amount') return f.amount || 0;
+    if (key === 'gszzl') return hasTodayData ? (parseFloat(f.gszzl) || 0) : 0;
+    if (key === 'todayProfit') {
+      if (!f.prevNav || !hasTodayData) return 0;
+      const currentNav = f.navConfirmed ? f.confirmedNav : f.gsz;
+      const costNav = f.costNav || f.prevNav;
+      const shares = f.amount / costNav;
+      return (currentNav - f.prevNav) * shares;
+    }
+    if (key === 'accum' || key === 'accumRate') {
+      const costNav = f.costNav || f.prevNav;
+      if (!costNav) return 0;
+      const costBasisNav = (f.costBasisLocked && f.costBasis > 0) ? f.costBasis : costNav;
+      const currentNav = f.navConfirmed ? f.confirmedNav : f.gsz;
+      const navForAccum = hasTodayData ? currentNav : (f.prevNav || currentNav);
+      const accumShares = (f.holdingShares > 0) ? f.holdingShares : (f.amount / (costBasisNav || costNav));
+      const accumProfit = costBasisNav ? (accumShares * (navForAccum - costBasisNav)) : 0;
+      if (key === 'accum') return accumProfit;
+      const costTotal = costBasisNav ? (accumShares * costBasisNav) : 0;
+      return costTotal > 0 ? (accumProfit / costTotal) * 100 : 0;
+    }
+    return 0;
+  }
+
+  window._sortFunds = function (key, desc) {
+    _fundSortKey = key; _fundSortDesc = desc;
+    // 高亮当前排序箭头
+    document.querySelectorAll('#tab1-content .sort-arrows .arr').forEach(b => b.classList.remove('active'));
+    const arrows = document.querySelectorAll('#tab1-content .sort-arrows');
+    arrows.forEach(group => {
+      group.querySelectorAll('.arr').forEach(b => {
+        const onclick = b.getAttribute('onclick');
+        if (onclick && onclick.includes("'" + key + "'") && onclick.includes(desc.toString())) {
+          b.classList.add('active');
+        }
+      });
+    });
+    funds.sort((a, b) => {
+      const va = _getFundSortValue(a, key);
+      const vb = _getFundSortValue(b, key);
+      return desc ? (vb - va) : (va - vb);
+    });
+    render();
+    save();
+  };
+
+  /* ── 隐私模式 ── */
+  const PRIVACY_COLS = [
+    { key: 'amount',    label: '持仓金额',   col: 1 },
+    { key: 'change',    label: '涨跌幅',    col: 2 },
+    { key: 'profit',    label: '今日盈亏',   col: 3 },
+    { key: 'accum',     label: '累计收益',   col: 4 },
+    { key: 'accumRate', label: '累计收益率', col: 5 },
+    { key: 'prevNav',   label: '昨日净值',   col: 6 },
+    { key: 'todayNav',  label: '今日估值',   col: 7 },
+    { key: 'cost',      label: '持仓成本',   col: 8 },
+    { key: 'shares',    label: '持仓份额',   col: 9 },
+  ];
+  let _hiddenCols = {};
+  try { _hiddenCols = JSON.parse(localStorage.getItem('fund_hidden_cols') || '{}'); } catch (_) {}
+
+  function _saveHiddenCols() {
+    localStorage.setItem('fund_hidden_cols', JSON.stringify(_hiddenCols));
+  }
+
+  function _isAnyHidden() { return Object.values(_hiddenCols).some(v => v); }
+
+  function _renderPrivacyMenu() {
+    const menu = document.getElementById('privacyMenu');
+    menu.innerHTML = '<div class="privacy-opt" onclick="_privacyToggleAll()" style="border-bottom:1px solid var(--border);margin-bottom:4px;padding-bottom:9px;">' +
+      '<div class="privacy-chk' + (_isAnyHidden() ? ' checked' : '') + '" id="privacyAllChk"></div>' +
+      '<span>' + (_isAnyHidden() ? '显示全部' : '隐藏全部') + '</span></div>' +
+      PRIVACY_COLS.map(c =>
+        '<div class="privacy-opt" onclick="_privacyToggle(\'' + c.key + '\')">' +
+        '<div class="privacy-chk' + (_hiddenCols[c.key] ? ' checked' : '') + '"></div>' +
+        '<span>' + c.label + '</span></div>'
+      ).join('');
+    const btn = document.getElementById('privacyBtn');
+    btn.className = 'privacy-toggle' + (_isAnyHidden() ? ' on' : '');
+  }
+
+  window._togglePrivacyMenu = function () {
+    const menu = document.getElementById('privacyMenu');
+    const isOpen = menu.classList.contains('show');
+    menu.classList.toggle('show');
+    if (!isOpen) _renderPrivacyMenu();
+  };
+
+  window._privacyToggle = function (key) {
+    _hiddenCols[key] = !_hiddenCols[key];
+    _saveHiddenCols();
+    _renderPrivacyMenu();
+    _applyPrivacy();
+  };
+
+  window._privacyToggleAll = function () {
+    const hide = !_isAnyHidden();
+    PRIVACY_COLS.forEach(c => { _hiddenCols[c.key] = hide; });
+    _saveHiddenCols();
+    _renderPrivacyMenu();
+    _applyPrivacy();
+  };
+
+  function _applyPrivacy() {
+    // 表格列
+    const table = document.querySelector('#tab1-content table');
+    if (table) {
+      PRIVACY_COLS.forEach(c => {
+        const hidden = !!_hiddenCols[c.key];
+        table.querySelectorAll('td:nth-child(' + (c.col + 1) + ')').forEach(td => {
+          td.classList.toggle('masked', hidden);
+        });
+      });
+    }
+    // 顶部汇总
+    const sumMap = { 'amount': 'sumValue', 'profit': 'sumProfit', 'change': 'sumChange', 'accum': 'sumAccum' };
+    Object.entries(sumMap).forEach(([key, id]) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('masked', !!_hiddenCols[key]);
+    });
+    // 按钮图标
+    const icon = document.getElementById('privacyIcon');
+    if (_isAnyHidden()) {
+      icon.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
+    } else {
+      icon.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+    }
+  }
+
+  // 点击其他区域关闭菜单
+  document.addEventListener('click', function (e) {
+    const wrap = document.getElementById('privacyWrap');
+    if (wrap && !wrap.contains(e.target)) {
+      document.getElementById('privacyMenu').classList.remove('show');
+    }
+  });
+
   function render() {
     document.getElementById('fundCount').textContent = funds.length;
     const tbody = document.getElementById('tbody');
 
     if (funds.length === 0) {
       tbody.innerHTML =
-        '<tr><td colspan="9"><div class="empty-state">' +
+        '<tr><td colspan="11"><div class="empty-state">' +
         '<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">' +
         '<rect x="2" y="3" width="20" height="18" rx="2.5"/>' +
         '<path d="M8 12h8M12 8v8"/>' +
@@ -2883,12 +3095,12 @@
     }
 
     tbody.innerHTML = funds.map(f => {
-      let prevNavCell, navCell, changeCell, profitCell, accumCell;
+      let prevNavCell, navCell, changeCell, profitCell, accumCell, accumRateCell;
       const sk = '<span class="skel"></span>';
 
       if (f.loading) {
         prevNavCell = sk; navCell = sk; changeCell = sk;
-        profitCell = sk; accumCell = sk;
+        profitCell = sk; accumCell = sk; accumRateCell = sk;
       } else if (f.error || f.gsz === null || f.prevNav === null) {
         const errTag = f.error
           ? '<span style="color:var(--profit);font-size:12px;">获取失败</span>'
@@ -2897,6 +3109,7 @@
         navCell = errTag; changeCell = errTag;
         profitCell = '<span class="neutral">--</span>';
         accumCell  = '<span class="neutral">--</span>';
+        accumRateCell = '<span class="neutral">--</span>';
       } else {
         const currentNav  = f.navConfirmed ? f.confirmedNav : f.gsz;
         const costNav     = f.costNav || f.prevNav;
@@ -2933,6 +3146,11 @@
           ? '<span class="' + cls + '">' + tSign + fmt(todayProfit, 2) + '</span>'
           : '<span class="neutral">0.00</span>';
         accumCell   = '<span class="' + aCls + '">' + aSign + fmt(accumProfit, 2) + '</span>';
+        const costTotal = costBasisNav ? (accumShares * costBasisNav) : 0;
+        const accumRate = costTotal > 0 ? (accumProfit / costTotal) * 100 : 0;
+        const arSign = accumRate >= 0 ? '+' : '';
+        const arCls  = accumRate > 0 ? 'profit' : accumRate < 0 ? 'loss' : 'neutral';
+        accumRateCell = '<span class="change-pill ' + arCls + '">' + arSign + fmt(accumRate, 2) + '%</span>';
       }
 
       // 持仓成本格：显示每份成本净值（单价，4位小数）
@@ -2974,6 +3192,7 @@
         '<td>' + changeCell + '</td>' +
         '<td>' + profitCell + '</td>' +
         '<td>' + accumCell  + '</td>' +
+        '<td>' + accumRateCell + '</td>' +
         '<td>' + prevNavCell + '</td>' +
         '<td>' + navCell    + '</td>' +
         '<td id="cb_' + f.code + '">' + costBasisCell + '</td>' +
@@ -2987,6 +3206,7 @@
         '</td>' +
         '</tr>';
     }).join('');
+    _applyPrivacy();
   }
 
   /* ── Summary ── */
@@ -3064,6 +3284,7 @@
       setEl('sumChange', '--', 'neutral');
       setEl('sumAccum',  (totalAccum >= 0 ? '+¥' : '-¥') + fmt(Math.abs(totalAccum), 2), aCls);
     }
+    _applyPrivacy();
   }
 
   /* ── Nav mode UI ── */
@@ -3216,10 +3437,10 @@
   window.refreshAll = refreshAll;
   window._mrIsInHoldings  = (code) => funds.some(f => f.code === code);
   window._mrIsInWatchlist = (code) => watchlist.some(w => w.code === code);
-  window._mrAddToWatch    = (code, name) => {
+  window._mrAddToWatch    = (code, name, tag) => {
     if (funds.some(f => f.code === code)) return showToast('该基金已在持仓', 'error');
     if (watchlist.some(w => w.code === code)) return showToast('该基金已在监控列表', 'error');
-    watchlist.push({ code, name: name || code, tag: null, prevNav: null, gsz: null, gszzl: null, gztime: null, jzrq: null, confirmedNav: null, navConfirmed: false, confirmedDate: null, loading: false, error: false });
+    watchlist.push({ code, name: name || code, tag: tag || null, prevNav: null, gsz: null, gszzl: null, gztime: null, jzrq: null, confirmedNav: null, navConfirmed: false, confirmedDate: null, loading: false, error: false });
     saveWatchlist();
     renderRanking();
     showToast('已添加监控', 'success');
@@ -3633,7 +3854,8 @@
         actionHtml = '<span class="mr-action muted">已在监控</span>';
       } else {
         const nameEsc = (item.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/</g, '&lt;');
-        actionHtml = `<span class="mr-action" onclick="var s=this;window._mrAddToWatch('${item.code}','${nameEsc}');s.textContent='已在监控';s.className='mr-action muted';s.onclick=null;">添加监控</span>`;
+        const sectorEsc = (item.sector || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/</g, '&lt;');
+        actionHtml = `<span class="mr-action" onclick="var s=this;window._mrAddToWatch('${item.code}','${nameEsc}','${sectorEsc}');s.textContent='已在监控';s.className='mr-action muted';s.onclick=null;">添加监控</span>`;
       }
 
       const sectorTag = item.sector ? `<span class="mr-sector">${item.sector}</span>` : '';
@@ -4391,7 +4613,8 @@ ${holdDetail}<br><br>
           actionHtml = '<span class="sector-fund-action muted">已在监控</span>';
         } else {
           const nameEscAttr = (f.name || f.code || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/</g, '&lt;');
-          actionHtml = '<span class="sector-fund-action" style="color:var(--accent);cursor:pointer;" onclick="event.stopPropagation();var s=this;window._mrAddToWatch(\'' + (f.code || '') + '\',\'' + nameEscAttr + '\');s.textContent=\'已在监控\';s.className=\'sector-fund-action muted\';s.onclick=null;">添加监控</span>';
+          const tagEscAttr = (s.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/</g, '&lt;');
+          actionHtml = '<span class="sector-fund-action" style="color:var(--accent);cursor:pointer;" onclick="event.stopPropagation();var s=this;window._mrAddToWatch(\'' + (f.code || '') + '\',\'' + nameEscAttr + '\',\'' + tagEscAttr + '\');s.textContent=\'已在监控\';s.className=\'sector-fund-action muted\';s.onclick=null;">添加监控</span>';
         }
         const suggestBtn = '<span class="sector-fund-suggest ' + _mrQuickSuggestClass(f) + '" onclick="event.stopPropagation();_openMrSuggest(\'' + (f.code || '') + '\')">💡 建议</span>';
         fundRows += '<div class="sector-fund-row">' +
