@@ -2460,10 +2460,12 @@
 
   /* ── 启动 Supabase（监听 Auth 状态）── */
   async function _sbBootstrap() {
+    _sbSyncing = true; // 启动期间锁定，禁止回写云端
     _renderUserArea(null);
 
     if (!_sbClient) {
       // 未配置 Supabase：直接弹出配置窗口，内容继续隐藏
+      _sbSyncing = false;
       document.getElementById('authModal').classList.add('open');
       setTimeout(() => _openSbConfig(), 80);
       return;
@@ -2483,6 +2485,7 @@
       } else {
         // 未登录：隐藏主内容，显示登录窗
         _sbLoaded = false;
+        _sbSyncing = false;
         document.getElementById('appContent').style.display = 'none';
         document.getElementById('authModal').classList.add('open');
       }
