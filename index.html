@@ -1917,8 +1917,13 @@
         if (data.name) f.name = data.name;
         if (data.jzrq)  f.jzrq  = data.jzrq;
         // 今天已有确认净值时，不用估值覆盖 gsz / gszzl
-        const alreadyConfirmedToday = (f.confirmedDate === getTodayStr());
-        if (!alreadyConfirmedToday) {
+        // 只有 PZD 来源的确认净值才算"已确认"，fundgz 来源的允许 PZD 再次覆盖
+        const alreadyConfirmedToday = (f.confirmedDate === getTodayStr() && f.confirmedSource === 'pzd');
+        // fundgz 数据有效性：jzrq 在 3 天内才更新估值，过期数据不覆盖
+        const gzJzrq = (data.jzrq || '');
+        const gzThreeDaysAgo = new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10);
+        const gzDataFresh = gzJzrq >= gzThreeDaysAgo;
+        if (!alreadyConfirmedToday && gzDataFresh) {
           if (data.gsz)  f.gsz  = parseFloat(data.gsz);
           if (data.gszzl !== undefined) f.gszzl = parseFloat(data.gszzl);
           if (data.gztime) f.gztime = data.gztime;
@@ -1956,10 +1961,11 @@
           }
         } else if (apiConfirmed) {
           // fundgz 本身已更新为今日净值（jzrq == 今天，或 gztime 今日+18点后）
-          // jzrq 已是今日 → 用 dwjz；否则 dwjz 可能仍是昨日，用 gsz
+          // 注意：fundgz 的 dwjz 可能是早期估值，PZD 二次请求会在 15:00 后覆盖
           f.navConfirmed  = true;
           f.confirmedNav  = parseFloat(data.jzrq === todayStr ? data.dwjz : (data.gsz || data.dwjz));
           f.confirmedDate = todayStr;
+          f.confirmedSource = 'fundgz';
           // 确认净值锁定成本净值（首次）
           if (!f.costBasisLocked && f.confirmedNav) {
             f.costBasis = f.confirmedNav;
@@ -1983,11 +1989,14 @@
             f._pnlPrevNav  = f.prevNav;
             f._pnlSnapDate = f.confirmedDate;
           }
-          // 先用 API 的 dwjz 更新 prevNav
-          if (data.dwjz) f.prevNav = parseFloat(data.dwjz);
-          if (data.dwjz && !f.costNav) f.costNav = parseFloat(data.dwjz);
+          // 用 API 的 dwjz 更新 prevNav，但要求 jzrq 是最近 3 天内的数据（过期数据不覆盖）
+          const apiJzrq = (data.jzrq || '');
+          const threeDaysAgo = new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10);
+          const apiDateFresh = apiJzrq >= threeDaysAgo;
+          if (data.dwjz && apiDateFresh) f.prevNav = parseFloat(data.dwjz);
+          if (data.dwjz && !f.costNav && apiDateFresh) f.costNav = parseFloat(data.dwjz);
           // 若本地存有更新的确认净值（confirmedDate > API 的 jzrq），以本地确认净值覆盖
-          if (f.confirmedNav && f.confirmedDate && f.confirmedDate > (data.jzrq || '')) {
+          if (f.confirmedNav && f.confirmedDate && f.confirmedDate > apiJzrq) {
             f.prevNav = f.confirmedNav;
             // 同步更新持仓金额（周末/新一天打开页面时补充执行）
             if (f.holdingShares > 0) {
@@ -2015,8 +2024,10 @@
       const nowH = new Date().getHours();
       const todayStr2 = getTodayStr();
       const isWeekend = [0, 6].includes(new Date().getDay());
+      // 15:00 后：只要不是 PZD 确认的就重拉（fundgz 早期估值可能被误判为"已确认"）
+      const pzdConfirmedToday = f.confirmedDate === todayStr2 && f.confirmedSource === 'pzd';
       const needFetch = !isWeekend && (
-        (nowH >= 15 && f.confirmedDate !== todayStr2) ||
+        (nowH >= 15 && !pzdConfirmedToday) ||
         (!f.confirmedNav && f.confirmedDate !== todayStr2)
       );
       if (needFetch && !f.error) {
@@ -2027,10 +2038,11 @@
             const lastDate = new Date(last.x + 8 * 3600 * 1000).toISOString().slice(0, 10);
             const cnav = last.y;
             if (lastDate === todayStr2) {
-              // 今日确认净值已出
+              // 今日确认净值已出（PZD 来源，最权威）
               f.navConfirmed  = true;
               f.confirmedNav  = cnav;
               f.confirmedDate = todayStr2;
+              f.confirmedSource = 'pzd';
               f.gsz   = cnav;
               if (f.prevNav) f.gszzl = parseFloat(((cnav - f.prevNav) / f.prevNav * 100).toFixed(4));
               // 锁定成本净值（首次）
@@ -3773,13 +3785,16 @@
 
     const isTradingDay = !_mrIsNonTradingDay();
     const nowH = new Date().getHours();
-    const todayStr = _mrTodayStr();
+    // 18:00 后（含非交易日）：需取确认净值（fundgz gszzl 不会再更新，需走 PZD）
+    const needConfirmed = !isTradingDay || nowH >= 18;
 
-    // 缓存有效性：有确认净值缓存且日期是今天 → 不过期；否则 30 分钟过期
+    // 缓存有效性检查
     if (_mrCache && _mrCache.length > 0) {
       const cacheAge = Date.now() - _mrCacheTime;
-      const hasConfirmed = _mrCache.some(r => r.confirmed === true);
-      const cacheStale = hasConfirmed ? false : cacheAge > 30 * 60 * 1000;
+      const cacheInEstimateMode = _mrCache.every(r => r.confirmed === false);
+      const cacheStale = cacheInEstimateMode
+        ? cacheAge > 30 * 60 * 1000 || needConfirmed
+        : false;
       if (!cacheStale) {
         _mrRender(body, foot, _mrCache);
         _mrBusy = false;
@@ -3791,69 +3806,47 @@
     const codes = pool.map(p => p.code);
     const codeToSector = Object.fromEntries(pool.map(p => [p.code, p.sector]));
 
-    // 阶段 1：fundgz 快速拉取（任何时间都先走这步）
-    body.innerHTML = '<div class="mr-empty"><span class="spinner"></span>&nbsp;加载中…</div>';
-    let results = [];
-    try {
-      const raw = await _mrFetchGzBatch(codes, isTradingDay, (done, total) => {
-        body.innerHTML = `<div class="mr-empty"><span class="spinner"></span>&nbsp;加载中… ${done}/${total}</div>`;
-      });
-
-      const failedCodes = codes.filter(c => !raw[c]);
-      if (failedCodes.length > 0) {
-        const fallbackPool = failedCodes.map(c => ({ code: c, sector: codeToSector[c] || '' }));
-        body.innerHTML = `<div class="mr-empty"><span class="spinner"></span>&nbsp;补充加载 ${failedCodes.length} 只…</div>`;
-        const fallbackResults = await _mrFetchPZDParallel(fallbackPool, (done, total) => {
-          body.innerHTML = `<div class="mr-empty"><span class="spinner"></span>&nbsp;补充加载 ${done}/${total}</div>`;
-        });
-        fallbackResults.forEach(r => { raw[r.code] = r; });
-      }
-
-      results = Object.values(raw).map(r => ({ ...r, sector: codeToSector[r.code] || r.sector || '' })).sort((a, b) => b.ret - a.ret);
-      _mrCache = results;
-      _mrCacheTime = Date.now();
-      _mrRender(body, foot, results);
-    } catch (e) {
-      body.innerHTML = `<div class="mr-empty">加载失败：${e.message}</div>`;
-      _mrBusy = false;
-      _mrUpdateRefreshTime();
-      return;
-    }
-
-    // 阶段 2：15:00 后 / 非交易日 → PZD 拉确认净值，有今天数据的替换估值
-    const needPZD = !isTradingDay || nowH >= 15;
-    if (needPZD && results.length > 0) {
+    if (!needConfirmed) {
+      // 盘中：fundgz 并发拉取，失败的基金自动 PZD 补充
+      body.innerHTML = '<div class="mr-empty"><span class="spinner"></span>&nbsp;加载中…</div>';
       try {
-        foot.textContent = '正在获取确认净值…';
-        const pzdResults = await _mrFetchPZDParallel(pool, (done, total) => {
-          foot.textContent = `确认净值 ${done}/${total}…`;
+        const raw = await _mrFetchGzBatch(codes, true, (done, total) => {
+          body.innerHTML = `<div class="mr-empty"><span class="spinner"></span>&nbsp;加载中… ${done}/${total}</div>`;
         });
-        // 找出 PZD 中日期 >= fundgz 日期的（更新或同日确认），替换
-        const cMap = {};
-        pzdResults.forEach(r => {
-          const existing = results.find(x => x.code === r.code);
-          if (r.jzrq === todayStr || (existing && r.jzrq >= existing.jzrq)) {
-            cMap[r.code] = r;
-          }
+
+        const failedCodes = codes.filter(c => !raw[c]);
+        if (failedCodes.length > 0) {
+          const fallbackPool = failedCodes.map(c => ({ code: c, sector: codeToSector[c] || '' }));
+          body.innerHTML = `<div class="mr-empty"><span class="spinner"></span>&nbsp;补充加载 ${failedCodes.length} 只…</div>`;
+          const fallbackResults = await _mrFetchPZDParallel(fallbackPool, (done, total) => {
+            body.innerHTML = `<div class="mr-empty"><span class="spinner"></span>&nbsp;补充加载 ${done}/${total}</div>`;
+          });
+          fallbackResults.forEach(r => { raw[r.code] = r; });
+        }
+
+        const results = Object.values(raw).map(r => ({ ...r, sector: codeToSector[r.code] || r.sector || '' })).sort((a, b) => b.ret - a.ret);
+        _mrCache = results;
+        _mrCacheTime = Date.now();
+        _mrRender(body, foot, results);
+      } catch (e) {
+        body.innerHTML = `<div class="mr-empty">加载失败：${e.message}</div>`;
+      }
+    } else {
+      // 18:00 后 / 非交易日：分批并行 PZD，取确认净值 + 准确涨幅
+      body.innerHTML = '<div class="mr-empty"><span class="spinner"></span>&nbsp;加载中…（取确认净值）</div>';
+      try {
+        const results = await _mrFetchPZDParallel(pool, (done, total) => {
+          body.innerHTML = `<div class="mr-empty"><span class="spinner"></span>&nbsp;${done}/${total}…</div>`;
         });
-        const cCount = Object.keys(cMap).length;
-        if (cCount > 0) {
-          results = results.map(r => {
-            const c = cMap[r.code];
-            return c ? { ...c, sector: r.sector || c.sector, confirmed: c.jzrq === todayStr ? true : null } : r;
-          }).sort((a, b) => b.ret - a.ret);
+        if (!results.length) {
+          body.innerHTML = '<div class="mr-empty">暂无有效数据，请稍后刷新重试</div>';
+        } else {
           _mrCache = results;
           _mrCacheTime = Date.now();
           _mrRender(body, foot, results);
-          const confirmedCount = pzdResults.filter(r => r.jzrq === todayStr).length;
-          foot.textContent = confirmedCount > 0
-            ? `已更新 ${confirmedCount} 只确认净值`
-            : '确认净值暂未公布';
-        } else {
-          foot.textContent = '确认净值暂未公布';
         }
-      } catch (_) {
-        foot.textContent = '';
+      } catch (e) {
+        body.innerHTML = `<div class="mr-empty">加载失败：${e.message}</div>`;
       }
     }
     _mrBusy = false;
